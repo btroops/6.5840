@@ -1,11 +1,13 @@
 package mr
 
-import "fmt"
-import "log"
-import "net/rpc"
-import "hash/fnv"
-import "os"
-
+import (
+	"fmt"
+	"hash/fnv"
+	"io/ioutil"
+	"log"
+	"net/rpc"
+	"os"
+)
 
 // Map functions return a slice of KeyValue.
 type KeyValue struct {
@@ -22,7 +24,8 @@ func ihash(key string) int {
 }
 
 var coordSockName string // socket for coordinator
-
+var nReduce int
+var workerId int
 
 // main/mrworker.go calls this function.
 func Worker(sockname string, mapf func(string, string) []KeyValue,
@@ -34,6 +37,80 @@ func Worker(sockname string, mapf func(string, string) []KeyValue,
 
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()
+	// 初始化
+	Init()
+	// 处理 map 任务
+	DoMapTask(mapf)
+	// 处理reduce 任务
+	DoReduceTask(reducef)
+
+}
+func Init() {
+	args := RequestInitArgs{}
+	reply := RequestInitReply{}
+	ok := call("Coordinator.RequestInitRPC", &args, &reply)
+	if ok {
+		nReduce = reply.NReduce
+		workerId = reply.WorkerId
+	} else {
+
+	}
+
+}
+func DoMapTask(mapf func(string, string) []KeyValue) {
+	data := make([]map[string][]string, nReduce)
+	for i := range data {
+		data[i] = make(map[string][]string)
+	}
+	for {
+		args := RequestMapTaskArgs{}
+		reply := RequestMapTaskReply{}
+		ok := call("Coordinator.RequestMapTaskRPC", &args, &reply)
+		// fmt.Printf()
+		if ok && reply.FileName != "" {
+			file, err := os.Open(reply.FileName)
+			if err != nil {
+				log.Fatalf("cannot open %v", reply.FileName)
+			}
+			content, err := ioutil.ReadAll(file)
+			if err != nil {
+				log.Fatalf("cannot read %v", reply.FileName)
+			}
+			file.Close()
+			// fmt.Println(string(content))
+			kva := mapf(reply.FileName, string(content))
+
+			for _, kv := range kva {
+				key := kv.Key
+				value := kv.Value
+				data_index := ihash(key) % nReduce
+				values, exists := data[data_index][key]
+				if !exists {
+					values = make([]string, 0)
+				}
+				values = append(values, value)
+				data[data_index][key] = values
+			}
+		} else {
+			break
+		}
+	}
+
+	for i := 0; i < len(data); i++ {
+		mapOutputFileName := fmt.Sprintf("map_worker_%d_%d.txt", workerId, i)
+		file, err := os.Create(mapOutputFileName)
+		if err != nil {
+			log.Fatalf("failed to create %s: %v", mapOutputFileName, err)
+		}
+		for key, values := range data[i] {
+			fmt.Fprintf(file, "%s %d\n", key, len(values))
+		}
+		file.Close()
+	}
+
+}
+
+func DoReduceTask(reducef func(string, []string) string) {
 
 }
 
