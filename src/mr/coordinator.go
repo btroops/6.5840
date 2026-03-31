@@ -16,8 +16,10 @@ type Coordinator struct {
 	// nReduce
 	// worker
 	// files
-	Files   []string
-	NReduce int
+	Files            []string
+	NReduce          int
+	MMapOutFileNames map[int][]string
+	MapOutFileNames  []string
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -34,6 +36,23 @@ func (c *Coordinator) RequestMapTaskRPC(args *RequestMapTaskArgs, reply *Request
 	if nfile < len(c.Files) {
 		reply.FileName = c.Files[nfile]
 		nfile++
+	}
+	return nil
+}
+
+func (c *Coordinator) MapTasksDone(args *MapTaskEndArgs, reply *struct{}) error {
+	// 追加模式，不会覆盖，兼容初始为空
+	c.MMapOutFileNames[args.WorkerId] = append(c.MMapOutFileNames[args.WorkerId], args.FileNames...)
+	c.MapOutFileNames = append(c.MapOutFileNames, args.FileNames...)
+	return nil
+}
+
+func (c *Coordinator) RequestReduceTask(arg *RequestReduceTaskArgs, reply *RequestReduceReply) error {
+	if len(c.MapOutFileNames) > 0 {
+		reply.FileName = c.MapOutFileNames[0]
+		c.MapOutFileNames = c.MapOutFileNames[1:]
+	} else {
+		reply.FileName = ""
 	}
 	return nil
 }
@@ -72,11 +91,12 @@ func (c *Coordinator) Done() bool {
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
 func MakeCoordinator(sockname string, files []string, nReduce int) *Coordinator {
-	c := Coordinator{}
-
-	// Your code here.
-	c.Files = append([]string{}, files...)
-	c.NReduce = nReduce
+	c := Coordinator{
+		Files:            files,
+		NReduce:          nReduce,
+		MMapOutFileNames: make(map[int][]string),
+		MapOutFileNames:  make([]string, 0),
+	}
 	c.server(sockname)
 	return &c
 }

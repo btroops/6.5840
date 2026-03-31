@@ -1,12 +1,15 @@
 package mr
 
 import (
+	"bufio"
 	"fmt"
 	"hash/fnv"
 	"io/ioutil"
 	"log"
 	"net/rpc"
 	"os"
+	"strconv"
+	"strings"
 )
 
 // Map functions return a slice of KeyValue.
@@ -95,7 +98,7 @@ func DoMapTask(mapf func(string, string) []KeyValue) {
 			break
 		}
 	}
-
+	mapOutPutFileNames := []string{}
 	for i := 0; i < len(data); i++ {
 		mapOutputFileName := fmt.Sprintf("map_worker_%d_%d.txt", workerId, i)
 		file, err := os.Create(mapOutputFileName)
@@ -106,11 +109,66 @@ func DoMapTask(mapf func(string, string) []KeyValue) {
 			fmt.Fprintf(file, "%s %d\n", key, len(values))
 		}
 		file.Close()
+		mapOutPutFileNames = append(mapOutPutFileNames, mapOutputFileName)
 	}
-
+	// 告诉coordinator 我这边的任务已经处理好了
+	MapTasksDone(mapOutPutFileNames)
 }
 
-func DoReduceTask(reducef func(string, []string) string) {
+func MapTasksDone(files []string) {
+	args := MapTaskEndArgs{
+		FileNames: files,
+		WorkerId:  workerId,
+	}
+	ok := call("Coordinator.MapTasksDone", &args, &struct{}{})
+	if ok {
+
+	} else {
+
+	}
+}
+
+func DoReduceTask(reducef func(string, []string) string) error {
+	// 向coordinator请求reduce任务
+	data := make(map[string]int)
+
+	for {
+		args := RequestReduceTaskArgs{
+			WorkerId: workerId,
+		}
+		reply := RequestReduceReply{}
+		ok := call("Coordinator.RequestReduceTask", &args, &reply)
+		if ok && reply.FileName != "" {
+			file, err := os.Open(reply.FileName)
+			if err != nil {
+				log.Fatalf("cannot open %v", reply.FileName)
+			}
+			scanner := bufio.NewScanner(file)
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				if line == "" {
+					continue
+				}
+				k, v := strings.Fields(line)[0], strings.Fields(line)[1]
+				num, _ := strconv.Atoi(v)
+				data[k] += num
+			}
+		} else {
+			break
+		}
+	}
+	fileName := "mr-out-0"
+	file, err := os.Create(fileName)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	for k, v := range data {
+		fmt.Fprintf(file, "%s %d\n", k, v)
+	}
+
+	return nil
 
 }
 

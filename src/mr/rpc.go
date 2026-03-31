@@ -45,3 +45,16 @@ type RequestMapTaskArgs struct {
 type RequestMapTaskReply struct {
 	FileName string
 }
+
+type MapTaskEndArgs struct {
+	FileNames []string
+	WorkerId  int
+}
+
+type RequestReduceTaskArgs struct {
+	WorkerId int
+}
+
+type RequestReduceReply struct {
+	FileName string
+}
